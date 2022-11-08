@@ -13,10 +13,12 @@ use nom::multi::{length_count, length_data, many0, many1};
 use nom::number::streaming::{be_u16, be_u24, be_u32, be_u8};
 use nom_derive::*;
 use rusticata_macros::newtype_enum;
+use serde::Serialize;
 
 use crate::tls_alert::*;
 use crate::tls_ciphers::*;
 use crate::tls_ec::ECPoint;
+use crate::tls_extensions::{parse_tls_extensions, TlsExtension};
 
 pub use nom::{Err, IResult};
 
@@ -66,7 +68,7 @@ impl From<TlsHandshakeType> for u8 {
 ///
 /// Only the TLS version defined in the TLS message header is meaningful, the
 /// version defined in the record should be ignored or set to TLS 1.0
-#[derive(Clone, Copy, Default, PartialEq, Eq, NomBE)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, NomBE, Serialize)]
 pub struct TlsVersion(pub u16);
 
 impl TlsVersion {
@@ -145,7 +147,7 @@ impl From<TlsRecordType> for u8 {
     }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, NomBE)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, NomBE, Serialize)]
 pub struct TlsCompressionID(pub u8);
 
 newtype_enum! {
@@ -174,7 +176,7 @@ impl AsRef<u8> for TlsCompressionID {
     }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, NomBE)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, NomBE, Serialize)]
 pub struct TlsCipherSuiteID(pub u16);
 
 impl TlsCipherSuiteID {
@@ -250,14 +252,14 @@ pub trait ClientHello<'a> {
     }
     /// A list of compression methods supported by client
     fn comp(&self) -> &Vec<TlsCompressionID>;
-    fn ext(&self) -> Option<&'a [u8]>;
+    fn ext(&self) -> &Vec<TlsExtension>;
 }
 
 /// TLS Client Hello (from TLS 1.0 to TLS 1.2)
 ///
 /// Some fields are unparsed (for performance reasons), for ex to parse `ext`,
 /// call the `parse_tls_extensions` function.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct TlsClientHelloContents<'a> {
     /// TLS version of message
     pub version: TlsVersion,
@@ -268,7 +270,7 @@ pub struct TlsClientHelloContents<'a> {
     /// A list of compression methods supported by client
     pub comp: Vec<TlsCompressionID>,
 
-    pub ext: Option<&'a [u8]>,
+    pub ext: Vec<TlsExtension<'a>>,
 }
 
 impl<'a> TlsClientHelloContents<'a> {
@@ -278,7 +280,7 @@ impl<'a> TlsClientHelloContents<'a> {
         sid: Option<&'a [u8]>,
         c: Vec<TlsCipherSuiteID>,
         co: Vec<TlsCompressionID>,
-        e: Option<&'a [u8]>,
+        e: Vec<TlsExtension<'a>>,
     ) -> Self {
         TlsClientHelloContents {
             version: TlsVersion(v),
@@ -320,13 +322,13 @@ impl<'a> ClientHello<'a> for TlsClientHelloContents<'a> {
         &self.comp
     }
 
-    fn ext(&self) -> Option<&'a [u8]> {
-        self.ext
+    fn ext(&self) -> &Vec<TlsExtension> {
+        &self.ext
     }
 }
 
 /// TLS Server Hello (from TLS 1.0 to TLS 1.2)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct TlsServerHelloContents<'a> {
     pub version: TlsVersion,
     pub random: &'a [u8],
@@ -334,11 +336,11 @@ pub struct TlsServerHelloContents<'a> {
     pub cipher: TlsCipherSuiteID,
     pub compression: TlsCompressionID,
 
-    pub ext: Option<&'a [u8]>,
+    pub ext: Vec<TlsExtension<'a>>,
 }
 
 /// TLS Server Hello (TLS 1.3 draft 18)
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct TlsServerHelloV13Draft18Contents<'a> {
     pub version: TlsVersion,
     pub random: &'a [u8],
@@ -363,7 +365,7 @@ impl<'a> TlsServerHelloContents<'a> {
         sid: Option<&'a [u8]>,
         c: u16,
         co: u8,
-        e: Option<&'a [u8]>,
+        e: Vec<TlsExtension<'a>>,
     ) -> Self {
         TlsServerHelloContents {
             version: TlsVersion(v),
@@ -632,7 +634,7 @@ fn parse_tls_handshake_msg_client_hello(i: &[u8]) -> IResult<&[u8], TlsMessageHa
     let (i, ciphers) = parse_cipher_suites(i, ciphers_len as usize)?;
     let (i, comp_len) = be_u8(i)?;
     let (i, comp) = parse_compressions_algs(i, comp_len as usize)?;
-    let (i, ext) = opt(complete(length_data(be_u16)))(i)?;
+    let (i, ext) = parse_tls_extensions(i)?;
     let content = TlsClientHelloContents::new(version, random, sid, ciphers, comp, ext);
     Ok((i, TlsMessageHandshake::ClientHello(content)))
 }
@@ -651,7 +653,7 @@ pub(crate) fn parse_tls_server_hello_tlsv12(i: &[u8]) -> IResult<&[u8], TlsServe
     let (i, sid) = cond(sidlen > 0, take(sidlen as usize))(i)?;
     let (i, cipher) = be_u16(i)?;
     let (i, comp) = be_u8(i)?;
-    let (i, ext) = opt(complete(length_data(be_u16)))(i)?;
+    let (i, ext) = parse_tls_extensions(i)?;
     let content = TlsServerHelloContents::new(version, random, sid, cipher, comp, ext);
     Ok((i, content))
 }

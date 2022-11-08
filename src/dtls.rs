@@ -1,6 +1,7 @@
 //! Datagram Transport Layer Security Version 1.2 (RFC 6347)
 
 use crate::tls::*;
+use crate::tls_extensions::{parse_tls_extensions, TlsExtension};
 use crate::TlsMessageAlert;
 use alloc::vec::Vec;
 use nom::bytes::streaming::take;
@@ -49,7 +50,7 @@ pub struct DTLSClientHello<'a> {
     pub ciphers: Vec<TlsCipherSuiteID>,
     /// A list of compression methods supported by client
     pub comp: Vec<TlsCompressionID>,
-    pub ext: Option<&'a [u8]>,
+    pub ext: Vec<TlsExtension<'a>>,
 }
 
 impl<'a> ClientHello<'a> for DTLSClientHello<'a> {
@@ -73,8 +74,8 @@ impl<'a> ClientHello<'a> for DTLSClientHello<'a> {
         &self.comp
     }
 
-    fn ext(&self) -> Option<&'a [u8]> {
-        self.ext
+    fn ext(&self) -> &Vec<TlsExtension> {
+        &self.ext
     }
 }
 
@@ -160,7 +161,7 @@ fn parse_dtls_client_hello(i: &[u8]) -> IResult<&[u8], DTLSMessageHandshakeBody>
     let (i, ciphers) = parse_cipher_suites(i, ciphers_len as usize)?;
     let (i, comp_len) = be_u8(i)?;
     let (i, comp) = parse_compressions_algs(i, comp_len as usize)?;
-    let (i, ext) = opt(complete(length_data(be_u16)))(i)?;
+    let (i, ext) = parse_tls_extensions(i)?;
     let content = DTLSClientHello {
         version,
         random,

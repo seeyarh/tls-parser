@@ -19,7 +19,7 @@ impl<'a> fmt::Debug for TlsClientHelloContents<'a> {
             .field("session_id", &self.session_id.map(HexSlice))
             .field("ciphers", &self.ciphers)
             .field("comp", &self.comp)
-            .field("ext", &self.ext.map(HexSlice))
+            .field("ext", &self.ext)
             .finish()
     }
 }
@@ -32,7 +32,7 @@ impl<'a> fmt::Debug for TlsServerHelloContents<'a> {
             .field("session_id", &self.session_id.map(HexSlice))
             .field("cipher", &self.cipher)
             .field("compression", &self.compression)
-            .field("ext", &self.ext.map(HexSlice))
+            .field("ext", &self.ext)
             .finish()
     }
 }
